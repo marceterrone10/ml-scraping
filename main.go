@@ -11,29 +11,46 @@ import (
 	"strings"
 	"time"
 
+	"github.com/joho/godotenv"
 	"github.com/marceloterrone/car-scrapper/internal/scraper"
 )
 
 func main() {
+	_ = godotenv.Load()
 	site := flag.String("site", "MLA", "MercadoLibre site ID (MLA, MLB, MLM, MLC, MCO, MLU)")
 	query := flag.String("query", "", "Search query (e.g. toyota corolla 2020)")
-	pages := flag.Int("pages", 1, "Number of result pages to scrape (48 listings per page)")
+	pages := flag.Int("pages", 1, "Number of result pages to scrape")
 	delay := flag.Duration("delay", 2*time.Second, "Delay between requests")
 	output := flag.String("output", "output/listings.json", "Output file path (.json or .csv)")
+	cookies := flag.String("cookies", os.Getenv("ML_COOKIES"), "Path to browser-exported cookies file")
+	proxy := flag.String("proxy", "", "HTTP proxy URL (e.g. http://user:pass@host:port)")
 	verbose := flag.Bool("verbose", false, "Enable debug logging")
 	flag.Parse()
 
-	cfg := scraper.Config{
-		Site:     strings.ToUpper(*site),
+	if strings.TrimSpace(*cookies) == "" {
+		log.Fatal(`browser cookies are required.
+
+Add to .env:
+  ML_COOKIES=cookies.json
+
+Or pass -cookies cookies.json
+
+Export cookies from mercadolibre.com.ar while logged in (browser extension).`)
+	}
+
+	siteID := strings.ToUpper(*site)
+	log.Printf("scraping %s cars (query=%q, pages=%d)", siteID, *query, *pages)
+
+	s := scraper.New(scraper.Config{
+		Site:     siteID,
 		Query:    *query,
 		MaxPages: *pages,
 		Delay:    *delay,
+		Cookies:  *cookies,
+		ProxyURL: *proxy,
 		Verbose:  *verbose,
-	}
+	})
 
-	log.Printf("scraping %s cars (query=%q, pages=%d)", cfg.Site, cfg.Query, cfg.MaxPages)
-
-	s := scraper.New(cfg)
 	result, err := s.Run()
 	if err != nil {
 		log.Fatalf("scrape failed: %v", err)
