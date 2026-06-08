@@ -232,18 +232,18 @@ func mapToListing(item map[string]any, site string, scrapedAt time.Time) models.
 	attrs := extractAttributes(item)
 
 	listing := models.Listing{
-		ID:         id,
-		Title:      title,
-		Price:      toFloat(item["price"]),
+		ID:            id,
+		Title:         title,
+		Price:         toFloat(item["price"]),
 		OriginalPrice: toFloat(item["original_price"]),
-		Currency:   currency,
-		Condition:  condition,
-		Location:   location,
-		URL:        permalink,
-		ImageURL:   firstPicture(item),
-		Attributes: attrs,
-		Site:       site,
-		ScrapedAt:  scrapedAt,
+		Currency:      currency,
+		Condition:     condition,
+		Location:      location,
+		URL:           permalink,
+		ImageURL:      firstPicture(item),
+		Attributes:    attrs,
+		Site:          site,
+		ScrapedAt:     scrapedAt,
 	}
 
 	listing.Brand = attrs["BRAND"]
@@ -388,16 +388,16 @@ func parseCard(card *goquery.Selection, site string, scrapedAt time.Time) models
 	})
 
 	listing := models.Listing{
-		ID:        id,
-		Title:     title,
-		Price:     parsePrice(priceText),
-		Currency:  currency,
-		Location:  location,
-		URL:       href,
-		ImageURL:  card.Find("img").First().AttrOr("src", ""),
+		ID:         id,
+		Title:      title,
+		Price:      parsePrice(priceText),
+		Currency:   currency,
+		Location:   location,
+		URL:        href,
+		ImageURL:   card.Find("img").First().AttrOr("src", ""),
 		Attributes: attrs,
-		Site:      site,
-		ScrapedAt: scrapedAt,
+		Site:       site,
+		ScrapedAt:  scrapedAt,
 	}
 
 	if listing.URL == "" && id != "" {
