@@ -111,7 +111,3 @@ MercadoLibre redirects unauthenticated automated traffic to a login wall. If blo
 │       ├── scraper.go       # Colly crawler
 │       └── cookies.go       # Cookie file loader
 ```
-
-## License
-
-MIT
