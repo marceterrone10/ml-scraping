@@ -1,0 +1,30 @@
+# Binaries
+/car-scrapper
+/scraper
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Output
+output/
+*.csv
+*.json
+!go.sum
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Env & secrets
+.env
+.env.*
+cookies.json
+cookies.txt
