@@ -22,7 +22,7 @@ Supports Argentina (MLA), Brazil (MLB), Mexico (MLM), Chile (MLC), Colombia (MCO
 
 ```bash
 go mod download
-go build -o car-scrapper .
+go build -o car-scrapper ./cmd/car-scrapper
 ```
 
 ## Setup
@@ -103,8 +103,11 @@ MercadoLibre redirects unauthenticated automated traffic to a login wall. If blo
 
 ```
 .
-├── main.go                  # CLI entrypoint
+├── cmd/car-scrapper/        # CLI entrypoint
 ├── internal/
+│   ├── config/
+│   │   ├── config.go        # App and scraper configuration
+│   │   └── env.go           # Environment variable helpers
 │   ├── models/listing.go    # Data types
 │   ├── parser/parser.go     # JSON + HTML parsing
 │   └── scraper/

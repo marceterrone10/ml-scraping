@@ -3,64 +3,35 @@ package main
 import (
 	"encoding/csv"
 	"encoding/json"
-	"flag"
 	"fmt"
 	"log"
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
-	"github.com/joho/godotenv"
+	"github.com/marceloterrone/car-scrapper/internal/config"
 	"github.com/marceloterrone/car-scrapper/internal/scraper"
 )
 
 func main() {
-	_ = godotenv.Load()
-	site := flag.String("site", "MLA", "MercadoLibre site ID (MLA, MLB, MLM, MLC, MCO, MLU)")
-	query := flag.String("query", "", "Search query (e.g. toyota corolla 2020)")
-	pages := flag.Int("pages", 1, "Number of result pages to scrape")
-	delay := flag.Duration("delay", 2*time.Second, "Delay between requests")
-	output := flag.String("output", "output/listings.json", "Output file path (.json or .csv)")
-	cookies := flag.String("cookies", os.Getenv("ML_COOKIES"), "Path to browser-exported cookies file")
-	proxy := flag.String("proxy", "", "HTTP proxy URL (e.g. http://user:pass@host:port)")
-	verbose := flag.Bool("verbose", false, "Enable debug logging")
-	flag.Parse()
-
-	if strings.TrimSpace(*cookies) == "" {
-		log.Fatal(`browser cookies are required.
-
-Add to .env:
-  ML_COOKIES=cookies.json
-
-Or pass -cookies cookies.json
-
-Export cookies from mercadolibre.com.ar while logged in (browser extension).`)
+	cfg, err := config.Load()
+	if err != nil {
+		log.Fatal(err)
 	}
 
-	siteID := strings.ToUpper(*site)
-	log.Printf("scraping %s cars (query=%q, pages=%d)", siteID, *query, *pages)
+	log.Printf("scraping %s cars (query=%q, pages=%d)", cfg.Scraper().Site, cfg.Query, cfg.MaxPages)
 
-	s := scraper.New(scraper.Config{
-		Site:     siteID,
-		Query:    *query,
-		MaxPages: *pages,
-		Delay:    *delay,
-		Cookies:  *cookies,
-		ProxyURL: *proxy,
-		Verbose:  *verbose,
-	})
-
+	s := scraper.New(cfg.Scraper())
 	result, err := s.Run()
 	if err != nil {
 		log.Fatalf("scrape failed: %v", err)
 	}
 
-	if err := writeOutput(*output, result); err != nil {
+	if err := writeOutput(cfg.Output, result); err != nil {
 		log.Fatalf("write output: %v", err)
 	}
 
-	log.Printf("done: %d listings saved to %s", result.TotalFound, *output)
+	log.Printf("done: %d listings saved to %s", result.TotalFound, cfg.Output)
 }
 
 func writeOutput(path string, result any) error {

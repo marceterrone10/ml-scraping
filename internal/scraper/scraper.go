@@ -10,28 +10,16 @@ import (
 
 	"github.com/gocolly/colly/v2"
 	"github.com/gocolly/colly/v2/debug"
+	"github.com/marceloterrone/car-scrapper/internal/config"
 	"github.com/marceloterrone/car-scrapper/internal/models"
 	"github.com/marceloterrone/car-scrapper/internal/parser"
 )
 
 const itemsPerPage = 48
 
-// Config controls scraper behavior.
-type Config struct {
-	Site      string
-	Query     string
-	MaxPages  int
-	Delay     time.Duration
-	Parallel  int
-	UserAgent string
-	Cookies   string
-	ProxyURL  string
-	Verbose   bool
-}
-
 // Scraper crawls MercadoLibre car listings.
 type Scraper struct {
-	cfg      Config
+	cfg      config.ScraperConfig
 	listings []models.Listing
 	mu       sync.Mutex
 	pages    int
@@ -39,7 +27,7 @@ type Scraper struct {
 }
 
 // New creates a configured scraper.
-func New(cfg Config) *Scraper {
+func New(cfg config.ScraperConfig) *Scraper {
 	if cfg.Site == "" {
 		cfg.Site = "MLA"
 	}
