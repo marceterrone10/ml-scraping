@@ -2,6 +2,7 @@ package scraper
 
 import (
 	"fmt"
+	"net/http"
 	"net/url"
 	"strings"
 	"sync"
@@ -23,6 +24,8 @@ type Config struct {
 	Delay     time.Duration
 	Parallel  int
 	UserAgent string
+	Cookies   string
+	ProxyURL  string
 	Verbose   bool
 }
 
@@ -57,37 +60,18 @@ func New(cfg Config) *Scraper {
 
 // Run executes the scrape and returns aggregated results.
 func (s *Scraper) Run() (*models.SearchResult, error) {
-	c := colly.NewCollector(
-		colly.UserAgent(s.cfg.UserAgent),
-		colly.Async(true),
-	)
-
-	if s.cfg.Verbose {
-		c.SetDebugger(&debug.LogDebugger{})
+	c, err := s.newCollector()
+	if err != nil {
+		return nil, err
 	}
 
-	c.Limit(&colly.LimitRule{
-		DomainGlob:  "*",
-		Parallelism: s.cfg.Parallel,
-		Delay:       s.cfg.Delay,
-		RandomDelay: s.cfg.Delay / 2,
-	})
-
 	c.OnRequest(func(r *colly.Request) {
-		r.Headers.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8")
-		r.Headers.Set("Accept-Language", "es-AR,es;q=0.9,en;q=0.8")
-		r.Headers.Set("Accept-Encoding", "gzip, deflate, br")
-		r.Headers.Set("Cache-Control", "no-cache")
-		r.Headers.Set("Sec-Fetch-Dest", "document")
-		r.Headers.Set("Sec-Fetch-Mode", "navigate")
-		r.Headers.Set("Sec-Fetch-Site", "none")
-		r.Headers.Set("Sec-Fetch-User", "?1")
-		r.Headers.Set("Upgrade-Insecure-Requests", "1")
+		s.setBrowserHeaders(r)
 	})
 
 	c.OnResponse(func(r *colly.Response) {
 		if isBlocked(r) {
-			s.setError(fmt.Errorf("blocked by MercadoLibre anti-bot — run from a residential network and increase -delay"))
+			s.setError(blockedError())
 			return
 		}
 
@@ -106,6 +90,8 @@ func (s *Scraper) Run() (*models.SearchResult, error) {
 	c.OnError(func(r *colly.Response, err error) {
 		s.setError(fmt.Errorf("request failed %s: %w", r.Request.URL, err))
 	})
+
+	_ = s.warmup(c)
 
 	startURL := s.buildSearchURL(1)
 	if err := c.Visit(startURL); err != nil {
@@ -136,6 +122,90 @@ func (s *Scraper) Run() (*models.SearchResult, error) {
 	}, nil
 }
 
+func (s *Scraper) newCollector() (*colly.Collector, error) {
+	c := colly.NewCollector(
+		colly.UserAgent(s.cfg.UserAgent),
+		colly.Async(true),
+	)
+
+	if s.cfg.Verbose {
+		c.SetDebugger(&debug.LogDebugger{})
+	}
+
+	if s.cfg.ProxyURL != "" {
+		if err := c.SetProxy(s.cfg.ProxyURL); err != nil {
+			return nil, fmt.Errorf("set proxy: %w", err)
+		}
+	}
+
+	if s.cfg.Cookies != "" {
+		cookies, err := LoadCookies(s.cfg.Cookies)
+		if err != nil {
+			return nil, err
+		}
+		c.OnRequest(func(r *colly.Request) {
+			for _, cookie := range cookies {
+				r.Headers.Set("Cookie", appendCookie(r.Headers.Get("Cookie"), cookie))
+			}
+		})
+	}
+
+	c.Limit(&colly.LimitRule{
+		DomainGlob:  "*",
+		Parallelism: s.cfg.Parallel,
+		Delay:       s.cfg.Delay,
+		RandomDelay: s.cfg.Delay / 2,
+	})
+
+	return c, nil
+}
+
+func appendCookie(existing string, cookie *http.Cookie) string {
+	pair := cookie.Name + "=" + cookie.Value
+	if existing == "" {
+		return pair
+	}
+	return existing + "; " + pair
+}
+
+func (s *Scraper) warmup(c *colly.Collector) error {
+	home := siteHome(s.cfg.Site)
+	sync := c.Clone()
+	sync.Async = false
+
+	var warmupErr error
+	sync.OnRequest(func(r *colly.Request) {
+		s.setBrowserHeaders(r)
+	})
+	sync.OnResponse(func(r *colly.Response) {
+		if isBlocked(r) {
+			warmupErr = blockedError()
+		}
+	})
+	sync.OnError(func(_ *colly.Response, err error) {
+		warmupErr = err
+	})
+
+	if err := sync.Visit(home); err != nil {
+		return err
+	}
+	return warmupErr
+}
+
+func (s *Scraper) setBrowserHeaders(r *colly.Request) {
+	r.Headers.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8")
+	r.Headers.Set("Accept-Language", siteLanguage(s.cfg.Site))
+	r.Headers.Set("Cache-Control", "no-cache")
+	r.Headers.Set("Sec-Fetch-Dest", "document")
+	r.Headers.Set("Sec-Fetch-Mode", "navigate")
+	r.Headers.Set("Sec-Fetch-Site", "same-origin")
+	r.Headers.Set("Sec-Fetch-User", "?1")
+	r.Headers.Set("Upgrade-Insecure-Requests", "1")
+	if r.URL.String() != siteHome(s.cfg.Site) {
+		r.Headers.Set("Referer", siteHome(s.cfg.Site))
+	}
+}
+
 func (s *Scraper) setError(err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -161,6 +231,32 @@ func (s *Scraper) buildSearchURL(page int) string {
 	return u.String()
 }
 
+func siteHome(site string) string {
+	switch site {
+	case "MLB":
+		return "https://www.mercadolivre.com.br/"
+	case "MLM":
+		return "https://www.mercadolibre.com.mx/"
+	case "MLC":
+		return "https://www.mercadolibre.cl/"
+	case "MCO":
+		return "https://www.mercadolibre.com.co/"
+	case "MLU":
+		return "https://www.mercadolibre.com.uy/"
+	default:
+		return "https://www.mercadolibre.com.ar/"
+	}
+}
+
+func siteLanguage(site string) string {
+	switch site {
+	case "MLB":
+		return "pt-BR,pt;q=0.9"
+	default:
+		return "es-AR,es;q=0.9,en;q=0.8"
+	}
+}
+
 func listadoBase(site string) string {
 	switch site {
 	case "MLB":
@@ -184,9 +280,19 @@ func slugifyQuery(q string) string {
 	return q
 }
 
+func blockedError() error {
+	return fmt.Errorf(`blocked by MercadoLibre anti-bot.
+
+MercadoLibre redirects automated requests to a login wall. Try:
+
+  1. Export fresh cookies from mercadolibre.com.ar while logged in
+  2. Set ML_COOKIES=cookies.json in .env or pass -cookies cookies.json
+  3. Increase -delay (e.g. 4s) or use -proxy with a residential proxy`)
+}
+
 func isBlocked(r *colly.Response) bool {
-	url := strings.ToLower(r.Request.URL.String())
-	if strings.Contains(url, "account-verification") || strings.Contains(url, "suspicious-traffic") {
+	reqURL := strings.ToLower(r.Request.URL.String())
+	if strings.Contains(reqURL, "account-verification") || strings.Contains(reqURL, "suspicious-traffic") {
 		return true
 	}
 	body := strings.ToLower(string(r.Body))
