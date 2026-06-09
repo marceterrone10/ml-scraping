@@ -1,0 +1,7 @@
+[
+  {"brand": "Toyota", "model": "Corolla", "query": "toyota corolla"},
+  {"brand": "Ford", "model": "Ranger", "query": "ford ranger"},
+  {"brand": "Volkswagen", "model": "Gol", "query": "volkswagen gol"},
+  {"brand": "Fiat", "model": "Cronos", "query": "fiat cronos"},
+  {"brand": "Chevrolet", "model": "Onix", "query": "chevrolet onix"}
+]

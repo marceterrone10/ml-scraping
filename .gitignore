@@ -12,6 +12,7 @@ output/
 *.csv
 *.json
 !go.sum
+!jobs.example.json
 
 # IDE
 .idea/
