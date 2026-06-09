@@ -99,7 +99,7 @@ func (s *Scraper) Run() (*models.SearchResult, error) {
 		return nil, s.err
 	}
 
-	unique := dedupe(s.listings)
+	unique := DedupeListings(s.listings)
 	return &models.SearchResult{
 		Query:        s.cfg.Query,
 		Site:         s.cfg.Site,
@@ -157,7 +157,7 @@ func appendCookie(existing string, cookie *http.Cookie) string {
 }
 
 func (s *Scraper) warmup(c *colly.Collector) error {
-	home := siteHome(s.cfg.Site)
+	home := autosHome(s.cfg.Site)
 	sync := c.Clone()
 	sync.Async = false
 
@@ -189,8 +189,9 @@ func (s *Scraper) setBrowserHeaders(r *colly.Request) {
 	r.Headers.Set("Sec-Fetch-Site", "same-origin")
 	r.Headers.Set("Sec-Fetch-User", "?1")
 	r.Headers.Set("Upgrade-Insecure-Requests", "1")
-	if r.URL.String() != siteHome(s.cfg.Site) {
-		r.Headers.Set("Referer", siteHome(s.cfg.Site))
+	home := autosHome(s.cfg.Site)
+	if r.URL.String() != home {
+		r.Headers.Set("Referer", home)
 	}
 }
 
@@ -203,15 +204,19 @@ func (s *Scraper) setError(err error) {
 }
 
 func (s *Scraper) buildSearchURL(page int) string {
-	base := listadoBase(s.cfg.Site)
-	path := "vehiculos/autos-camionetas"
+	base := autosBase(s.cfg.Site)
+	brand, model := s.brandModel()
 
-	query := strings.TrimSpace(s.cfg.Query)
-	if query != "" {
-		path = path + "/" + slugifyQuery(query)
+	u, _ := url.Parse(base)
+	switch {
+	case brand != "" && model != "":
+		u.Path = "/" + slugifyQuery(brand) + "/" + slugifyQuery(model)
+	case brand != "":
+		u.Path = "/" + slugifyQuery(brand)
+	default:
+		u.Path = "/"
 	}
 
-	u, _ := url.Parse(base + "/" + path)
 	if page > 1 {
 		offset := (page-1)*itemsPerPage + 1
 		u.Path = strings.TrimSuffix(u.Path, "/") + fmt.Sprintf("/_Desde_%d_NoIndex_True", offset)
@@ -219,20 +224,44 @@ func (s *Scraper) buildSearchURL(page int) string {
 	return u.String()
 }
 
-func siteHome(site string) string {
+func (s *Scraper) brandModel() (brand, model string) {
+	brand = strings.TrimSpace(s.cfg.Brand)
+	model = strings.TrimSpace(s.cfg.Model)
+	if brand != "" || model != "" {
+		return brand, model
+	}
+	return splitQuery(s.cfg.Query)
+}
+
+func splitQuery(query string) (brand, model string) {
+	parts := strings.Fields(strings.TrimSpace(query))
+	if len(parts) >= 2 {
+		return parts[0], strings.Join(parts[1:], " ")
+	}
+	if len(parts) == 1 {
+		return parts[0], ""
+	}
+	return "", ""
+}
+
+func autosHome(site string) string {
+	return autosBase(site) + "/"
+}
+
+func autosBase(site string) string {
 	switch site {
 	case "MLB":
-		return "https://www.mercadolivre.com.br/"
+		return "https://autos.mercadolivre.com.br"
 	case "MLM":
-		return "https://www.mercadolibre.com.mx/"
+		return "https://autos.mercadolibre.com.mx"
 	case "MLC":
-		return "https://www.mercadolibre.cl/"
+		return "https://autos.mercadolibre.cl"
 	case "MCO":
-		return "https://www.mercadolibre.com.co/"
+		return "https://autos.mercadolibre.com.co"
 	case "MLU":
-		return "https://www.mercadolibre.com.uy/"
+		return "https://autos.mercadolibre.com.uy"
 	default:
-		return "https://www.mercadolibre.com.ar/"
+		return "https://autos.mercadolibre.com.ar"
 	}
 }
 
@@ -242,23 +271,6 @@ func siteLanguage(site string) string {
 		return "pt-BR,pt;q=0.9"
 	default:
 		return "es-AR,es;q=0.9,en;q=0.8"
-	}
-}
-
-func listadoBase(site string) string {
-	switch site {
-	case "MLB":
-		return "https://lista.mercadolivre.com.br"
-	case "MLM":
-		return "https://listado.mercadolibre.com.mx"
-	case "MLC":
-		return "https://listado.mercadolibre.cl"
-	case "MCO":
-		return "https://listado.mercadolibre.com.co"
-	case "MLU":
-		return "https://listado.mercadolibre.com.uy"
-	default:
-		return "https://listado.mercadolibre.com.ar"
 	}
 }
 
@@ -298,7 +310,8 @@ func isBlocked(r *colly.Response) bool {
 	return false
 }
 
-func dedupe(listings []models.Listing) []models.Listing {
+// DedupeListings removes duplicate listings by ID.
+func DedupeListings(listings []models.Listing) []models.Listing {
 	seen := make(map[string]struct{}, len(listings))
 	out := make([]models.Listing, 0, len(listings))
 	for _, l := range listings {

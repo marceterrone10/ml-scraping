@@ -23,6 +23,8 @@ type Config struct {
 type ScraperConfig struct {
 	Site      string
 	Query     string
+	Brand     string
+	Model     string
 	MaxPages  int
 	Delay     time.Duration
 	Parallel  int
