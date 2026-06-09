@@ -32,3 +32,22 @@ type SearchResult struct {
 	Listings     []Listing `json:"listings"`
 	ScrapedAt    time.Time `json:"scraped_at"`
 }
+
+// JobError records a failed scrape job in a batch run.
+type JobError struct {
+	Query string `json:"query"`
+	Brand string `json:"brand,omitempty"`
+	Model string `json:"model,omitempty"`
+	Error string `json:"error"`
+}
+
+// BatchResult aggregates listings from multiple scrape jobs.
+type BatchResult struct {
+	Site       string         `json:"site"`
+	TotalJobs  int            `json:"total_jobs"`
+	TotalFound int            `json:"total_found"`
+	Listings   []Listing      `json:"listings"`
+	Results    []SearchResult `json:"results_by_query,omitempty"`
+	Errors     []JobError     `json:"errors,omitempty"`
+	ScrapedAt  time.Time      `json:"scraped_at"`
+}

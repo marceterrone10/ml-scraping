@@ -11,6 +11,8 @@ import (
 type Config struct {
 	Site     string
 	Query    string
+	JobsFile string
+	Workers  int
 	MaxPages int
 	Delay    time.Duration
 	Output   string
@@ -54,6 +56,8 @@ func Load() (Config, error) {
 	cfg := Config{}
 	flag.StringVar(&cfg.Site, "site", "MLA", "MercadoLibre site ID (MLA, MLB, MLM, MLC, MCO, MLU)")
 	flag.StringVar(&cfg.Query, "query", "", "Search query (e.g. toyota corolla 2020)")
+	flag.StringVar(&cfg.JobsFile, "jobs", "", "JSON file with multiple brand/model jobs")
+	flag.IntVar(&cfg.Workers, "workers", 3, "Concurrent workers when using -jobs")
 	flag.IntVar(&cfg.MaxPages, "pages", 1, "Number of result pages to scrape")
 	flag.DurationVar(&cfg.Delay, "delay", 2*time.Second, "Delay between requests")
 	flag.StringVar(&cfg.Output, "output", "output/listings.json", "Output file path (.json or .csv)")

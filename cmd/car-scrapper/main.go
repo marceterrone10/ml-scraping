@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/marceloterrone/car-scrapper/internal/config"
+	"github.com/marceloterrone/car-scrapper/internal/pool"
 	"github.com/marceloterrone/car-scrapper/internal/scraper"
 )
 
@@ -19,6 +20,15 @@ func main() {
 		log.Fatal(err)
 	}
 
+	if cfg.JobsFile != "" {
+		runBatch(cfg)
+		return
+	}
+
+	runSingle(cfg)
+}
+
+func runSingle(cfg config.Config) {
 	log.Printf("scraping %s cars (query=%q, pages=%d)", cfg.Scraper().Site, cfg.Query, cfg.MaxPages)
 
 	s := scraper.New(cfg.Scraper())
@@ -32,6 +42,31 @@ func main() {
 	}
 
 	log.Printf("done: %d listings saved to %s", result.TotalFound, cfg.Output)
+}
+
+func runBatch(cfg config.Config) {
+	jobs, err := pool.LoadJobs(cfg.JobsFile)
+	if err != nil {
+		log.Fatalf("load jobs: %v", err)
+	}
+
+	log.Printf("scraping %s cars (%d jobs, %d workers, pages=%d)",
+		cfg.Scraper().Site, len(jobs), cfg.Workers, cfg.MaxPages)
+
+	p := pool.New(cfg.Workers, cfg.Scraper(), cfg.Verbose)
+	results := p.Run(jobs)
+
+	batch := pool.MergeResults(cfg.Scraper().Site, results)
+	for _, e := range batch.Errors {
+		log.Printf("job %q failed: %s", e.Query, e.Error)
+	}
+
+	if err := writeOutput(cfg.Output, batch); err != nil {
+		log.Fatalf("write output: %v", err)
+	}
+
+	log.Printf("done: %d listings from %d jobs saved to %s",
+		batch.TotalFound, batch.TotalJobs, cfg.Output)
 }
 
 func writeOutput(path string, result any) error {
