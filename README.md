@@ -153,6 +153,153 @@ MercadoLibre redirects unauthenticated automated traffic to a login wall. If blo
 - Use `-proxy` with a residential proxy
 - Reduce `-workers` in batch mode
 
+## Architecture
+
+Sequence diagrams of the main flows.
+
+### Overview (single vs batch)
+
+```mermaid
+sequenceDiagram
+    actor User
+    participant main
+    participant config
+    participant pool
+    participant scraper
+    participant FS as filesystem
+
+    User->>main: ./car-scrapper [flags]
+    main->>config: Load()
+    config-->>main: Config
+
+    alt -jobs file provided
+        main->>pool: LoadJobs(path)
+        pool-->>main: []Job
+        main->>pool: New(workers, cfg).Run(jobs)
+        loop each worker consumes jobsCh
+            pool->>scraper: New(cfg per job).Run()
+            scraper-->>pool: SearchResult or error
+        end
+        pool-->>main: []Result
+        main->>pool: MergeResults(site, results)
+        pool-->>main: BatchResult
+    else single -query
+        main->>scraper: New(cfg).Run()
+        scraper-->>main: SearchResult
+    end
+
+    main->>FS: writeOutput(JSON or CSV)
+    FS-->>main: ok
+    main-->>User: log done
+```
+
+### Scrape flow (single mode and each batch job)
+
+Every scrape — whether invoked from `main` or a pool worker — follows this path:
+
+```mermaid
+sequenceDiagram
+    participant caller as main or pool.worker
+    participant scraper
+    participant Colly
+    participant ML as ML Autos
+    participant parser
+
+    caller->>scraper: New(ScraperConfig)
+    caller->>scraper: Run()
+
+    scraper->>scraper: newCollector(cookies, delay, proxy)
+    scraper->>Colly: warmup → Visit(autosHome)
+    Colly->>ML: GET autos.mercadolibre.com.ar/
+    ML-->>Colly: HTML
+    Colly-->>scraper: OnResponse (check blocked)
+
+    scraper->>scraper: buildSearchURL(1..N)
+    Note over scraper: autos.mercadolibre.com.ar/{brand}/{model}
+
+    loop page 1 to MaxPages
+        scraper->>Colly: Visit(searchURL)
+        Colly->>ML: GET (headers + cookies)
+        ML-->>Colly: HTML with product_list
+        Colly->>scraper: OnResponse(body)
+        scraper->>parser: ParsePage(body, site)
+        parser-->>scraper: []Listing
+        scraper->>scraper: append listings (mutex)
+    end
+
+    scraper->>Colly: Wait()
+    scraper->>scraper: DedupeListings()
+    scraper-->>caller: SearchResult
+```
+
+### Parser pipeline
+
+```mermaid
+sequenceDiagram
+    participant scraper
+    participant parser
+    participant autos as parseProductList
+    participant filter as filterVehicles
+
+    scraper->>parser: ParsePage(body)
+    parser->>autos: extract "product_list":[...]
+    autos-->>parser: []Listing raw
+    parser->>filter: IsVehicleListing per item
+    Note over filter: reject /up/, ads, click1.<br/>accept auto.mercadolibre
+    filter-->>parser: []Listing vehicles
+
+    alt product_list empty
+        parser->>parser: parseEmbeddedJSON (fallback)
+        parser->>parser: parseHTML (fallback)
+    end
+
+    parser-->>scraper: listings or error
+```
+
+### Worker pool (batch mode)
+
+```mermaid
+sequenceDiagram
+    participant main
+    participant pool
+    participant producer as goroutine producer
+    participant closer as goroutine closer
+    participant W1 as Worker 1
+    participant W2 as Worker N
+    participant jobsCh as jobsCh
+    participant resultsCh as resultsCh
+    participant scraper
+
+    main->>pool: Run(jobs)
+
+    par launch workers
+        pool->>W1: go worker(jobsCh, resultsCh)
+        pool->>W2: go worker(jobsCh, resultsCh)
+    end
+
+    pool->>producer: go enqueue jobs
+    producer->>jobsCh: job1, job2, ... jobN
+    producer->>jobsCh: close()
+
+    par workers compete for jobs
+        W1->>jobsCh: receive job
+        W1->>scraper: Run()
+        scraper-->>W1: SearchResult
+        W1->>resultsCh: Result
+        W2->>jobsCh: receive job
+        W2->>scraper: Run()
+    end
+
+    pool->>closer: go wg.Wait then close(resultsCh)
+    closer->>closer: wg.Wait()
+    closer->>resultsCh: close()
+
+    pool->>resultsCh: range and collect
+    pool-->>main: []Result
+    main->>pool: MergeResults()
+    Note over pool: dedupe globally, collect errors
+```
+
 ## Project structure
 
 ```
