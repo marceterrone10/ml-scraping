@@ -20,15 +20,19 @@ var (
 	kmRE             = regexp.MustCompile(`([\d.]+)\s*(?:km|Kms?|kilómetros?)`)
 )
 
-// ParsePage extracts listings from a MercadoLibre search page body.
+// ParsePage extracts vehicle listings from a MercadoLibre autos search page body.
 func ParsePage(body []byte, site string) ([]models.Listing, error) {
-	if listings := parseEmbeddedJSON(body, site); len(listings) > 0 {
+	if listings := parseProductList(body, site); len(listings) > 0 {
 		return listings, nil
 	}
 
-	listings := parseHTML(body, site)
+	if listings := filterVehicles(parseEmbeddedJSON(body, site)); len(listings) > 0 {
+		return listings, nil
+	}
+
+	listings := filterVehicles(parseHTML(body, site))
 	if len(listings) == 0 {
-		return nil, fmt.Errorf("no listings found in page (blocked or empty results)")
+		return nil, fmt.Errorf("no vehicle listings found in page (blocked, empty results, or parts-only page)")
 	}
 	return listings, nil
 }
@@ -69,7 +73,7 @@ func parseEmbeddedJSON(body []byte, site string) []models.Listing {
 			}
 		}
 	})
-	return listings
+	return filterVehicles(listings)
 }
 
 func findJSONRoots(text string) []string {
@@ -141,9 +145,11 @@ func matchBracket(s string) int {
 
 func walkForListings(data any, site string) []models.Listing {
 	best := []models.Listing{}
+	bestScore := 0
 	walk(data, func(arr []map[string]any) {
-		listings := mapsToListings(arr, site)
-		if len(listings) > len(best) {
+		listings := filterVehicles(mapsToListings(arr, site))
+		if len(listings) > bestScore {
+			bestScore = len(listings)
 			best = listings
 		}
 	})
@@ -170,7 +176,9 @@ func walk(data any, onArray func([]map[string]any)) {
 				walk(item, onArray)
 				continue
 			}
-			if looksLikeListing(m) {
+			if looksLikeVehicleItem(m) {
+				maps = append(maps, m)
+			} else if looksLikeListing(m) {
 				maps = append(maps, m)
 			} else {
 				walk(m, onArray)
@@ -214,6 +222,9 @@ func mapsToListings(items []map[string]any, site string) []models.Listing {
 			continue
 		}
 		if _, ok := seen[listing.ID]; ok {
+			continue
+		}
+		if !IsVehicleListing(listing) {
 			continue
 		}
 		seen[listing.ID] = struct{}{}
@@ -345,7 +356,7 @@ func parseHTML(body []byte, site string) []models.Listing {
 	for _, sel := range selectors {
 		doc.Find(sel).Each(func(_ int, card *goquery.Selection) {
 			listing := parseCard(card, site, now)
-			if listing.ID == "" {
+			if listing.ID == "" || !IsVehicleListing(listing) {
 				return
 			}
 			if _, ok := seen[listing.ID]; ok {
