@@ -1,0 +1,12 @@
+.git
+.gitignore
+output/
+.env
+.env.*
+cookies.json
+cookies.txt
+*.md
+.idea/
+.vscode/
+.DS_Store
+car-scrapper
