@@ -8,10 +8,13 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/marceloterrone/car-scrapper/internal/config"
 	"github.com/marceloterrone/car-scrapper/internal/pool"
 	"github.com/marceloterrone/car-scrapper/internal/scraper"
+
+	"github.com/go-co-op/gocron/v2"
 )
 
 func main() {
@@ -20,12 +23,35 @@ func main() {
 		log.Fatal(err)
 	}
 
-	if cfg.JobsFile != "" {
-		runBatch(cfg)
-		return
+	loc, err := time.LoadLocation("America/Argentina/Buenos_Aires")
+	if err != nil {
+		log.Fatal(err)
 	}
 
-	runSingle(cfg)
+	//Scheduler
+	s, err := gocron.NewScheduler(gocron.WithLocation(loc))
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	_, err = s.NewJob( // newjob accepts definition and task.
+		// definition
+		gocron.DailyJob(
+			1, // one time each day
+			gocron.NewAtTimes(gocron.NewAtTime(12, 0, 0)), // @ 12:00:00
+		),
+		gocron.NewTask(func() { // execution
+			if cfg.JobsFile != "" {
+				runBatch(cfg)
+			} else {
+				runSingle(cfg)
+			}
+		}),
+	)
+	if err != nil {
+		log.Fatal(err)
+	}
+	s.Start()
 }
 
 func runSingle(cfg config.Config) {
